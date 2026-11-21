@@ -44,7 +44,7 @@ from onyx.server.features.build.sandbox.util.agent_instructions import (
 from onyx.server.features.build.timeouts import QUEUE_RESIDENCY_SECONDS
 from onyx.skills.built_in import (
     BUILT_IN_SKILLS,
-    CHAT_CUSTOM_SKILLS_PATH,
+    CHAT_SKILLS_PATH,
     COMPANY_SEARCH,
     EXTERNAL_APP_SKILL_ID_TO_APP_TYPE,
     BuiltInSkillDefinition,
@@ -518,9 +518,7 @@ def build_chat_custom_skill_bundle(
             return None
     else:
         runtime_skill = runtime_skill.model_copy(update={"name": skill.name})
-    files = _assemble_skills(
-        [runtime_skill], user, db_session, CHAT_CUSTOM_SKILLS_PATH
-    ).files
+    files = _assemble_skills([runtime_skill], user, db_session, CHAT_SKILLS_PATH).files
     return SkillsBundle.from_files(files) if files else None
 
 

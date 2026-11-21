@@ -9,10 +9,12 @@ durable cache records (`harness_state`), so any API pod can serve
 a user's sandbox keeps (Onyx delete hooks call them through `purge`).
 """
 
+import io
 import posixpath
 import random
 import secrets
 import time
+import zipfile
 from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import nullcontext, suppress
 from typing import IO
@@ -174,7 +176,7 @@ from onyx.server.features.build.sandbox.models import (
     SkillsBundle,
     session_workspace,
 )
-from onyx.skills.built_in import CHAT_CUSTOM_SKILLS_PATH
+from onyx.skills.built_in import CHAT_SKILLS_MOUNT_PATH, CHAT_SKILLS_PATH
 from onyx.utils.logger import setup_logger
 
 logger = setup_logger()
@@ -226,6 +228,31 @@ try:
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
     os.unlink(src)
+"""
+# Links each built-in on the drive into the skills folder, and removes links to
+# built-ins that the drive no longer has. A real folder of that name stays.
+_LINK_BUILT_IN_SKILLS_SCRIPT = """
+import os, sys
+mount, root, *names = sys.argv[1:]
+os.makedirs(root, exist_ok=True)
+for entry in os.listdir(root):
+    path = os.path.join(root, entry)
+    if (
+        entry not in names
+        and os.path.islink(path)
+        and os.readlink(path).startswith(mount + "/")
+    ):
+        os.unlink(path)
+for name in names:
+    path = os.path.join(root, name)
+    target = os.path.join(mount, name)
+    if os.path.islink(path):
+        if os.readlink(path) == target:
+            continue
+        os.unlink(path)
+    elif os.path.lexists(path):
+        continue
+    os.symlink(target, path)
 """
 # Client token on each started command, to find it when Start gets no answer.
 _START_LABEL = "onyx_start_id"
@@ -330,6 +357,14 @@ class FirecrackerHarnessSandbox(HarnessSandbox, SandboxActivityProbe):
                 raise HarnessSandboxError(
                     f"The skills drive did not change: {swap.reason}: {swap.message}"
                 )
+            with zipfile.ZipFile(io.BytesIO(bundle.zip_bytes)) as zf:
+                names = sorted({path.split("/", 1)[0] for path in zf.namelist()})
+            self._run_python(
+                sandbox_daemon(self._client_factory, placed),
+                _LINK_BUILT_IN_SKILLS_SCRIPT,
+                [CHAT_SKILLS_MOUNT_PATH, CHAT_SKILLS_PATH, *names],
+                "linking the built-in skills",
+            )
             set_skills_image(tenant_cache, ref.sandbox_id, image)
 
     def install_skills(
@@ -379,50 +414,49 @@ class FirecrackerHarnessSandbox(HarnessSandbox, SandboxActivityProbe):
                         name,
                     )
 
-    @staticmethod
+    @classmethod
     def _install_skill(
-        daemon: SandboxDaemonClient, name: str, bundle: SkillsBundle
+        cls, daemon: SandboxDaemonClient, name: str, bundle: SkillsBundle
     ) -> None:
         zip_path = f"{ONYX_VM_FILES_ROOT}/skills/{secrets.token_hex(8)}.zip"
         daemon.write_file(session_id="", path=zip_path, data=bundle.zip_bytes)
         try:
-            result: ExecResult | None = None
-            stderr = b""
-            for event in daemon.run(
-                ExecCommand(
-                    argv=[
-                        "python3",
-                        "-I",
-                        "-c",
-                        _INSTALL_SKILL_SCRIPT,
-                        zip_path,
-                        CHAT_CUSTOM_SKILLS_PATH,
-                        name,
-                    ],
-                    deadline_seconds=_SKILL_INSTALL_DEADLINE_SECONDS,
-                )
-            ):
-                if (
-                    isinstance(event, ExecOutput)
-                    and event.stream is OutputStream.STDERR
-                ):
-                    stderr += event.data
-                elif isinstance(event, ExecResult):
-                    result = event
-            if (
-                result is None
-                or result.completion is not ExecCompletion.EXITED
-                or result.exit_code != 0
-            ):
-                raise HarnessSandboxError(
-                    f"copying skill {name!r} failed: "
-                    f"{stderr[-2000:].decode(errors='replace')}"
-                )
+            cls._run_python(
+                daemon,
+                _INSTALL_SKILL_SCRIPT,
+                [zip_path, CHAT_SKILLS_PATH, name],
+                f"copying skill {name!r}",
+            )
         except Exception:
             # A command that did not start or did not end leaves the zip.
             with suppress(Exception):
                 daemon.delete_file(session_id="", path=zip_path)
             raise
+
+    @staticmethod
+    def _run_python(
+        daemon: SandboxDaemonClient, script: str, args: list[str], what: str
+    ) -> None:
+        result: ExecResult | None = None
+        stderr = b""
+        for event in daemon.run(
+            ExecCommand(
+                argv=["python3", "-I", "-c", script, *args],
+                deadline_seconds=_SKILL_INSTALL_DEADLINE_SECONDS,
+            )
+        ):
+            if isinstance(event, ExecOutput) and event.stream is OutputStream.STDERR:
+                stderr += event.data
+            elif isinstance(event, ExecResult):
+                result = event
+        if (
+            result is None
+            or result.completion is not ExecCompletion.EXITED
+            or result.exit_code != 0
+        ):
+            raise HarnessSandboxError(
+                f"{what} failed: {stderr[-2000:].decode(errors='replace')}"
+            )
 
     def _place(self, ref: HarnessSandboxRef) -> PlacedVm:
         """The running, initialized VM. Init runs only when the daemon is not

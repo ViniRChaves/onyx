@@ -19,8 +19,7 @@ from onyx.prompts.skill_prompts import (
 )
 from onyx.skills.built_in import (
     BUILT_IN_SKILLS,
-    CHAT_CUSTOM_SKILLS_PATH,
-    CHAT_SKILLS_MOUNT_PATH,
+    CHAT_SKILLS_PATH,
     BuiltInSkillDefinition,
 )
 from onyx.skills.bundle import (
@@ -155,7 +154,7 @@ def read_chat_skills_md(
         if definition is None:
             key = (skill.version_id, skill.path)
             if sandbox and key in skill_md:
-                folder = f"{CHAT_CUSTOM_SKILLS_PATH}/{skill.name}"
+                folder = f"{CHAT_SKILLS_PATH}/{skill.name}"
                 skill_md[key] = CUSTOM_SKILL_FILES_LINE.format(
                     folder=folder
                 ) + resolve_skill_dir_placeholder(skill_md[key], folder)
@@ -166,9 +165,7 @@ def read_chat_skills_md(
             logger.warning("Could not read built-in skill %s", skill.name)
             continue
         skill_md[(skill.version_id, skill.path)] = (
-            BUILT_IN_SKILL_FILES_LINE.format(
-                folder=f"{CHAT_SKILLS_MOUNT_PATH}/{skill.name}"
-            )
+            BUILT_IN_SKILL_FILES_LINE.format(folder=f"{CHAT_SKILLS_PATH}/{skill.name}")
             + instructions
         )
     return skill_md

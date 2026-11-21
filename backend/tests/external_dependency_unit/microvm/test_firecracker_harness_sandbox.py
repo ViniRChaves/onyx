@@ -78,7 +78,7 @@ from onyx.server.features.build.sandbox.models import (
     SkillsBundle,
     session_workspace,
 )
-from onyx.skills.built_in import CHAT_CUSTOM_SKILLS_PATH
+from onyx.skills.built_in import CHAT_SKILLS_MOUNT_PATH, CHAT_SKILLS_PATH
 from tests.external_dependency_unit.microvm.conftest import (
     TENANT_ID,
     AddNode,
@@ -1297,10 +1297,24 @@ def test_skills_go_to_each_vm_instance_once_per_change(
     )
     assert node.agent.swap_mounts == ["skills"]
     assert len(node.agent.managed_images) == 1
+    sandbox_id = str(ref.sandbox_id)
 
-    changed = SkillsBundle.from_files({**files, "pptx/SKILL.md": b"# pptx v2"})
+    def links() -> dict[str, str]:
+        return {
+            path: target
+            for (sid, _, path), target in node.agent.links.items()
+            if sid == sandbox_id
+        }
+
+    assert links() == {f"{CHAT_SKILLS_PATH}/pptx": f"{CHAT_SKILLS_MOUNT_PATH}/pptx"}
+
+    # A built-in that leaves the drive loses its link; a copied skill stays.
+    node.agent.files[(sandbox_id, "", f"{CHAT_SKILLS_PATH}/report/SKILL.md")] = b"r"
+    changed = SkillsBundle.from_files({"docx/SKILL.md": b"# docx"})
     sandbox.sync_skills(ref, changed)
     assert len(node.agent.swap_mounts) == 2
+    assert links() == {f"{CHAT_SKILLS_PATH}/docx": f"{CHAT_SKILLS_MOUNT_PATH}/docx"}
+    assert (sandbox_id, "", f"{CHAT_SKILLS_PATH}/report/SKILL.md") in node.agent.files
 
     vm = node.agent.vms[str(ref.sandbox_id)]
     sandbox._client_factory.client(node.address).stop(
@@ -1316,7 +1330,7 @@ def test_custom_skills_copy_to_each_vm_instance_once_per_version(
 ) -> None:
     ref = new_ref()
     sandbox_id = str(ref.sandbox_id)
-    root = CHAT_CUSTOM_SKILLS_PATH
+    root = CHAT_SKILLS_PATH
     bundles = {
         "report": SkillsBundle.from_files(
             {"report/SKILL.md": b"# report", "report/scripts/run.py": b"print(1)"}

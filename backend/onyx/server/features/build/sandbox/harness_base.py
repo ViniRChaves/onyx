@@ -227,8 +227,9 @@ class HarnessSandbox(abc.ABC):
 
     @abc.abstractmethod
     def sync_skills(self, ref: HarnessSandboxRef, bundle: SkillsBundle) -> None:
-        """Show the bundle's files read-only at CHAT_SKILLS_MOUNT_PATH. Skips
-        the transfer when this VM instance already shows the same bundle."""
+        """Show the bundle's files read-only at CHAT_SKILLS_MOUNT_PATH, with a
+        link to each skill folder in CHAT_SKILLS_PATH. Skips the transfer when
+        this VM instance already shows the same bundle."""
 
     @abc.abstractmethod
     def install_skills(
@@ -238,7 +239,7 @@ class HarnessSandbox(abc.ABC):
         load: Callable[[str], SkillsBundle | None],
     ) -> None:
         """Copy each skill (name → version key) to a writable folder under
-        CHAT_CUSTOM_SKILLS_PATH, from the bundle that `load(name)` gives.
+        CHAT_SKILLS_PATH, from the bundle that `load(name)` gives.
         Skips a skill that this VM instance has at that key, or that `load`
         gives no bundle for. A skill that fails is logged, not raised."""
 

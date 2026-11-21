@@ -30,7 +30,7 @@ from onyx.db.skill import (
 )
 from onyx.db.users import delete_user_from_db__no_commit
 from onyx.file_store.file_store import get_default_file_store
-from onyx.skills.built_in import CHAT_BUILT_IN_SKILL_IDS, CHAT_CUSTOM_SKILLS_PATH
+from onyx.skills.built_in import CHAT_BUILT_IN_SKILL_IDS, CHAT_SKILLS_PATH
 from onyx.skills.content import read_chat_skills_md, read_versions_skill_md
 from onyx.skills.ingest import delete_bundle_blob, ingest_skill_bundle
 from onyx.skills.push import (
@@ -309,8 +309,8 @@ def test_chat_built_ins_need_the_sandbox_and_name_their_vm_folder(
     skill_md = read_chat_skills_md([pptx], user.id, db_session, sandbox=True)[
         (pptx.version_id, pptx.path)
     ]
-    assert skill_md.startswith("Skill files: /mnt/skills/pptx/")
-    assert "python /mnt/skills/pptx/scripts/lint.py" in skill_md
+    assert skill_md.startswith("Skill files: /home/sandbox/.agents/skills/pptx/")
+    assert "python /home/sandbox/.agents/skills/pptx/scripts/lint.py" in skill_md
 
     # Each mounted folder is a listed skill; the bundle is built once.
     bundle = build_chat_built_ins_bundle(db_session)
@@ -352,7 +352,7 @@ def test_a_custom_chat_skill_copies_its_folder_and_names_it(
 
     bundle = build_chat_custom_skill_bundle(skill, author, db_session)
     assert bundle is not None
-    folder = f"{CHAT_CUSTOM_SKILLS_PATH}/{name}"
+    folder = f"{CHAT_SKILLS_PATH}/{name}"
     with zipfile.ZipFile(io.BytesIO(bundle.zip_bytes)) as zf:
         assert sorted(zf.namelist()) == [f"{name}/SKILL.md", f"{name}/scripts/run.py"]
         copied_md = zf.read(f"{name}/SKILL.md").decode()

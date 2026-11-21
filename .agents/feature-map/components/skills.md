@@ -178,12 +178,12 @@
   does not change what earlier turns see. A skill that cannot be read when
   the message is accepted is not applied. A chat built-in's SKILL.md
   starts with a `Skill files:` line that names its folder in the chat VM
-  (`/mnt/skills/<name>/`, read-only and noexec), where the model reads its
+  (`/home/sandbox/.agents/skills/<name>/`, a link to the read-only, noexec
+  `/mnt/skills/<name>/`), where the model reads its
   other files and runs its scripts through their interpreter with the
   sandbox tools ([[craft-sandboxes]]). In a turn with the sandbox tools, a
-  custom skill's SKILL.md (from `skills_read` or a pick) starts with a
-  `Skill files: /home/sandbox/.agents/skills/<name>/` line instead. Its files
-  copy there, writable, before the next sandbox call after the model reads
+  custom skill's SKILL.md (from `skills_read` or a pick) starts with the same
+  kind of line. Its files copy to that folder, writable, before the next sandbox call after the model reads
   it or a sent message picks it (`SandboxTurn.want_skills`). Without the
   sandbox tools, chat cannot open a custom skill's other files. App built-ins, company-search,
   image-generation and craft-documentation stay out of chat.

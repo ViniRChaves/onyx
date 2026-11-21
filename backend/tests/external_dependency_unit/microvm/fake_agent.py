@@ -965,7 +965,8 @@ class FakeSandboxd(sandboxd_pb2_grpc.SandboxdServicer):
 
     def _run_python(self, sandbox_id: str, args: list[str]) -> tuple[int, bytes]:
         """`-I -c <code> <file> <dir> ...`: runs the code with real Python on a
-        local copy of the VM file and directory, then copies the results back.
+        local copy of the VM file and directory (files and links), then copies
+        the results back.
         Call with the lock held."""
         flag, dash_c, code, src, root, *rest = args
         if (flag, dash_c) != ("-I", "-c"):
@@ -989,6 +990,21 @@ class FakeSandboxd(sandboxd_pb2_grpc.SandboxdServicer):
                 os.makedirs(posixpath.dirname(local), exist_ok=True)
                 with open(local, "wb") as f:
                     f.write(self.agent.files[key])
+            # Links keep their targets, with `src` read as the local copy.
+            links_under_root = [
+                key
+                for key in self.agent.links
+                if key[0] == sandbox_id
+                and key[1] == ""
+                and key[2].startswith(root + "/")
+            ]
+            for key in links_under_root:
+                local = posixpath.join(local_root, key[2].removeprefix(root + "/"))
+                os.makedirs(posixpath.dirname(local), exist_ok=True)
+                target = self.agent.links[key]
+                if target == src or target.startswith(src + "/"):
+                    target = local_src + target.removeprefix(src)
+                os.symlink(target, local)
             proc = subprocess.run(
                 [sys.executable, "-I", "-c", code, local_src, local_root, *rest],
                 capture_output=True,
@@ -996,12 +1012,21 @@ class FakeSandboxd(sandboxd_pb2_grpc.SandboxdServicer):
             )
             for key in under_root:
                 del self.agent.files[key]
-            for directory, _, names in os.walk(local_root):
-                for name in names:
+            for key in links_under_root:
+                del self.agent.links[key]
+            for directory, dirs, names in os.walk(local_root):
+                for name in dirs + names:
                     local = posixpath.join(directory, name)
                     rel = posixpath.relpath(local, local_root)
-                    with open(local, "rb") as f:
-                        self.agent.files[(sandbox_id, "", f"{root}/{rel}")] = f.read()
+                    key = (sandbox_id, "", f"{root}/{rel}")
+                    if os.path.islink(local):
+                        target = os.readlink(local)
+                        if target == local_src or target.startswith(local_src + "/"):
+                            target = src + target.removeprefix(local_src)
+                        self.agent.links[key] = target
+                    elif name in names:
+                        with open(local, "rb") as f:
+                            self.agent.files[key] = f.read()
             if not os.path.exists(local_src):
                 self.agent.files.pop(src_key, None)
         return proc.returncode, proc.stderr
