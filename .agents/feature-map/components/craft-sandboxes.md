@@ -276,7 +276,9 @@ the stored token on each request, so a new token takes effect at once.
   new instance, so its first chat turn pushes again. After each push, a
   `python3` command links each built-in folder into
   `/home/sandbox/.agents/skills/` and removes links to built-ins that the
-  drive no longer has, so every chat skill is in one folder. Custom skills do not
+  drive no longer has, so every chat skill is in one folder. The chat
+  built-ins zip carries the `onyx-managed:root-mode=0711` comment, so the host
+  builds the drive root at 0711 and `ls /mnt/skills` fails for the model. Custom skills do not
   use the drive: `install_skills` writes one skill's zip to
   `/tmp/onyx/skills/`, then a `python3` command unzips it to
   `/home/sandbox/.agents/skills/<name>/`. The

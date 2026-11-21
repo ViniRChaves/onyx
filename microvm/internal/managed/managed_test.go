@@ -465,6 +465,31 @@ func TestMkfsExt4Real(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), img.UUID) || strings.Contains(string(out), "has_journal") {
 		t.Fatalf("debugfs stats: %v\n%s", err, out)
 	}
+	out, err = exec.Command("debugfs", "-R", "stat /", img.Path).Output()
+	if err != nil || !strings.Contains(string(out), "Mode:  0755") {
+		t.Fatalf("debugfs stat /: %v\n%s", err, out)
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if _, err := zw.Create("pptx/SKILL.md"); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.SetComment(UnlistableRootComment); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	z = buf.Bytes()
+	img, _, err = s.Put(context.Background(), sum(z), int64(len(z)), bytes.NewReader(z))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = exec.Command("debugfs", "-R", "stat /", img.Path).Output()
+	if err != nil || !strings.Contains(string(out), "Mode:  0711") {
+		t.Fatalf("debugfs stat / of an unlistable root: %v\n%s", err, out)
+	}
 }
 
 func TestStoreRemoveUnused(t *testing.T) {
@@ -498,5 +523,51 @@ func TestStoreRemoveUnused(t *testing.T) {
 	}
 	if _, err := s.RemoveUnused("../x", none); err == nil {
 		t.Fatal("accepted a bad id")
+	}
+}
+
+func TestStoreRootModeFollowsTheZipComment(t *testing.T) {
+	commented := func(comment string) []byte {
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		w, err := zw.Create("pptx/SKILL.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte("# pptx")); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.SetComment(comment); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+	var calls []string
+	mkfs := fakeMkfs(&calls)
+	modes := map[string]fs.FileMode{}
+	s := &Store{Dir: t.TempDir(), Limits: DefaultLimits, Mkfs: func(ctx context.Context, path, dir string, size int64, uuid string, inodes int) error {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			return err
+		}
+		modes[uuid] = fi.Mode().Perm()
+		return mkfs(ctx, path, dir, size, uuid, inodes)
+	}}
+	for comment, want := range map[string]fs.FileMode{
+		"":                    0o755,
+		"something else":      0o755,
+		UnlistableRootComment: 0o711,
+	} {
+		z := commented(comment)
+		img, _, err := s.Put(context.Background(), sum(z), int64(len(z)), bytes.NewReader(z))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := modes[img.UUID]; got != want {
+			t.Fatalf("comment %q: root mode %o, want %o", comment, got, want)
+		}
 	}
 }

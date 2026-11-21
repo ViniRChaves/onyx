@@ -330,12 +330,12 @@ func (s *Store) build(ctx context.Context, id, zipPath string, size int64) (Imag
 			s.Log.Error("remove managed bundle stage", "dir", stage, "err", err)
 		}
 	}()
-	// The stage root is the drive root: root-owned 0755.
-	if err := os.Chmod(stage, 0o755); err != nil {
-		return Image{}, err
-	}
 	st, err := Extract(zr, stage, s.Limits)
 	if err != nil {
+		return Image{}, err
+	}
+	// The stage root is the drive root: root-owned, mode from the zip comment.
+	if err := os.Chmod(stage, RootMode(zr.Comment)); err != nil {
 		return Image{}, err
 	}
 	mkfs := s.Mkfs
@@ -591,8 +591,13 @@ func (s *Store) CleanStaging(unmount func(string) error) error {
 }
 
 // MkfsExt4 runs mkfs.ext4 -d: an ext4 with no journal (the drive is
-// read-only), root-owned, with the given UUID and inode count.
+// read-only), with the given UUID and inode count. The root is root-owned
+// with the mode of dir, which -d alone does not copy.
 func MkfsExt4(ctx context.Context, path, dir string, size int64, uuid string, inodes int) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
@@ -605,7 +610,7 @@ func MkfsExt4(ctx context.Context, path, dir string, size int64, uuid string, in
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "mkfs.ext4", "-q", "-F", "-b", "4096", "-I", "256", "-N", strconv.Itoa(inodes), "-m", "0",
-		"-O", "^has_journal", "-E", "root_owner=0:0", "-L", "managed", "-U", uuid, "-d", dir, path)
+		"-O", "^has_journal", "-E", fmt.Sprintf("root_owner=0:0,root_perms=%o", fi.Mode().Perm()), "-L", "managed", "-U", uuid, "-d", dir, path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("mkfs.ext4: %v: %s", err, strings.TrimSpace(string(out)))
 	}
